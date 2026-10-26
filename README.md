@@ -1,20 +1,12 @@
-# Hinglish flat-label entity tagging
+# Named-entity tagging in Hinglish
 
-Course-project code for fine-tuning multilingual encoders on Hindi-English code-mixed text, with word-level label alignment, batched prediction and token-level error analysis. Original team credit: Akshith Karthik, Ashmit Mukherjee, Harsh Agarwal and Lovnish Julka (NYU Abu Dhabi). This repository does not establish exclusive individual ownership of the team's work.
+An NYU Abu Dhabi course project on identifying named entities in Hindi-English code-mixed text with mBERT and XLM-RoBERTa. The pipeline prepares word-level labels, aligns them with each model's tokenizer, fine-tunes the encoder, and exports predictions and token-level error analysis.
 
-This release supplies a coherent pipeline and offline regression checks. **No trained checkpoint, full benchmark predictions, LLM-baseline implementation or measured research-results table is bundled.** Earlier README claims about complete-test evaluation, a representative 100-example LLM sample and code-switch-boundary findings are not supported by artifacts in this release and have been removed. No model benchmark was rerun for the release repair.
+Team: Akshith Karthik, Ashmit Mukherjee, Harsh Agarwal and Lovnish Julka.
 
-## Task and data contract
+The repository contains the pipeline and small offline test fixtures. Trained checkpoints and benchmark results are not included.
 
-The adapter targets [COMI-LINGUA on Hugging Face](https://huggingface.co/datasets/LingoIITGN/COMI-LINGUA), configuration `NER`. Dataset access and reuse terms are governed by that source. Data are not redistributed here; `tests/fixtures` contains only three hand-written contract examples.
-
-The implemented task is **flat word-level token classification**, not entity-span/BIO NER. Supported labels are `O`, `PER`, `ORG`, `LOC`, `MISC`, `DATE`, `TIME`, `HASHTAG`, `MENTION`. Incoming B-/I- prefixes collapse to the entity type; MISC is retained. Known aliases such as PERSON/ORGANISATION/LOCATION are canonicalized, while unsupported labels fail explicitly rather than silently becoming O.
-
-Prepared files contain IDs, original words and flat named labels. NFC normalization and surrounding-whitespace trimming preserve original script, case and punctuation. Roman-only filtering is available explicitly; transliteration is not silently applied. Exact repeated text cannot cross prepared splits: test is retained preferentially, then validation, then training. Counts removed from each split and source/prepared SHA-256 values are recorded in `manifest.json`. Conflicting annotations for the same text require explicit resolution.
-
-Each encoder tokenizes the word-level records with **its own fast tokenizer** at training and inference. The first subtoken gets the numeric label ID; continuation/special tokens get integer `-100`. Right padding is applied per batch; left-padding tokenizers are explicitly rejected so word positions cannot silently shift. Checkpoint label mappings drive prediction. Old pretokenized Arrow data and old checkpoints require regeneration with this contract.
-
-`--max_length` defaults to 256 subword tokens. Longer inputs are truncated; predictions record both original/evaluated word counts, and evaluation reports dropped words. Thus an evaluated split must not be described as complete-token coverage unless those counts establish it. Adjacent flat labels do not preserve entity boundaries.
+The task uses **flat word-level entity labels**. Entity-span boundaries are not preserved; evaluation measures token classification.
 
 ## Run
 
@@ -41,13 +33,27 @@ python -m src.error_slices --pred_path preds/xlmr_flat_test.jsonl
 python -m src.predict_flat_ner --model_dir outputs/xlmr-flat --text "Delhi police arrested the suspect near Connaught Place" --out_path preds/example.jsonl
 ```
 
-`bootstrap_from_hf --revision COMMIT` can pin the upstream dataset revision; the export records source fingerprints. The live dataset adapter and full transformer training/inference were not exercised during the offline release checks. Confirm exported columns/counts and preserve the manifests when running an actual experiment.
+`bootstrap_from_hf --revision COMMIT` pins the upstream dataset revision; the export records source fingerprints. Confirm exported columns/counts and preserve the manifests when running an experiment.
 
-To train mBERT on the same prepared words, use `--model_name bert-base-multilingual-cased --output_dir outputs/mbert-flat`; token IDs are regenerated for that model. Training also accepts `--revision` to pin the model source and records its resolved commit when the model configuration exposes one. `make train-xlmr`, `make train-mbert`, `make predict-test`, `make eval-test` and `make errors` wrap the same module commands. Override `OUTPUT`/`PRED`/`EVAL` when using a different checkpoint. Cluster/sync scripts are optional examples and do not establish any deployed run.
+To train mBERT on the same prepared words, use `--model_name bert-base-multilingual-cased --output_dir outputs/mbert-flat`; token IDs are regenerated for that model. Training also accepts `--revision` to pin the model source and records its resolved commit when the model configuration exposes one. `make train-xlmr`, `make train-mbert`, `make predict-test`, `make eval-test` and `make errors` wrap the same module commands. Override `OUTPUT`/`PRED`/`EVAL` when using a different checkpoint. Cluster/sync scripts are optional examples that need your own environment settings.
 
-## Metrics and offline checks
+## Data and labels
+
+The adapter targets [COMI-LINGUA on Hugging Face](https://huggingface.co/datasets/LingoIITGN/COMI-LINGUA), configuration `NER`. Dataset access and reuse terms are governed by that source. Data are not redistributed here; `tests/fixtures` contains three hand-written examples.
+
+Supported labels are `O`, `PER`, `ORG`, `LOC`, `MISC`, `DATE`, `TIME`, `HASHTAG`, `MENTION`. Incoming B-/I- prefixes collapse to the entity type. Aliases such as PERSON/ORGANISATION/LOCATION are canonicalized; unsupported labels raise an error.
+
+Prepared files contain IDs, original words and flat named labels. NFC normalization and surrounding-whitespace trimming preserve script, case and punctuation. Roman-only filtering is optional; no transliteration is applied. Exact repeated text cannot cross prepared splits: test is retained preferentially, then validation, then training. Removed-row counts and source/prepared SHA-256 values are recorded in `manifest.json`. Conflicting annotations for the same text require explicit resolution.
+
+Each encoder uses **its own fast tokenizer** at training and inference. The first subtoken receives the label ID; continuation and special tokens receive `-100`. Batches use right padding; left-padding tokenizers are rejected. Prediction reads the label mapping from the checkpoint. Older pretokenized data and checkpoints require regeneration with this format.
+
+`--max_length` defaults to 256 subword tokens. Longer inputs are truncated. Predictions record original and evaluated word counts, and evaluation reports dropped words; check these counts before claiming complete-token coverage.
+
+## Evaluation
 
 `eval_flat` writes `metrics.json` with per-class precision/recall/F1/support, token accuracy, weighted F1 and two macro scores. `macro_f1_entities` averages the eight declared non-O classes; `macro_f1_all` averages all nine classes. Absent classes contribute zero. Weighted F1 and accuracy include O, so interpret them alongside entity-class scores and support. These are **token metrics**, not exact-match entity-span scores. `error_slices` lists token confusions, without inferring language-switch boundaries.
+
+## Offline checks and limitations
 
 The offline tests use a tiny fake tokenizer/model callback, exercise real preparation and evaluation CLIs, and require no dataset/model download, PyTorch, GPU or paid API:
 
@@ -58,6 +64,8 @@ python -m src.data_prep --input tests/fixtures --output /tmp/ner-prepared
 python -m tests.smoke_processed /tmp/ner-prepared
 ```
 
-CI runs these contract checks. They verify alignment/masking, MISC preservation, variable-length batch padding, tokenizer separation, explicit truncation coverage, duplicate separation, annotation parsing and CLI flags. Passing them establishes the release's data/CLI contract, not model accuracy or reproduced research findings.
+CI checks alignment/masking, MISC preservation, variable-length batch padding, tokenizer separation, truncation coverage, duplicate separation, annotation parsing and CLI flags.
+
+The live dataset adapter and full transformer training/inference have not been exercised by these offline checks. They verify data handling and command interfaces, not model accuracy. No trained checkpoints, full benchmark predictions, LLM-baseline implementation or measured model-comparison table are bundled.
 
 Source code is licensed under [MIT](LICENSE).
