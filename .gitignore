@@ -42,3 +42,8 @@ Thumbs.db
 *.tar
 *.gz
 *.bak
+
+# Local predictions and offline test cache
+preds/
+eval/
+.pytest_cache/

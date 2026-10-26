@@ -1,12 +1,12 @@
 # scripts/peek_entity_dense.py
 #!/usr/bin/env python3
-from datasets import load_from_disk
+from src.contract import load_prepared
 
 def non_o_share(tags): 
     n=len(tags); return 0 if n==0 else sum(t!="O" for t in tags)/n
 
 def main(path="data/processed", top=10):
-    ds = load_from_disk(path)
+    ds, _ = load_prepared(path)
     for split in ("train","validation","test"):
         if split not in ds: continue
         d = ds[split]
